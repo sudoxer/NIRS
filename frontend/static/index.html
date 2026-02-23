@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,21 +11,25 @@
     <h1>School Journal</h1>
 
     <section id="login-section" class="card">
-      <h2>Login</h2>
-      <form id="login-form">
-        <label>Username <input id="username" required /></label>
-        <label>Password <input id="password" type="password" required /></label>
+      <h2>Вход</h2>
+      <form id="login-form" class="grid-form">
+        <label>Логин <input id="username" required /></label>
+        <label>Пароль <input id="password" type="password" required /></label>
         <button type="submit">Sign in</button>
       </form>
       <p id="login-error" class="error"></p>
     </section>
 
     <section id="app-section" class="hidden">
-      <div class="card">
-        <h2>Profile</h2>
-        <p id="profile"></p>
+      <div class="card topbar">
+        <div>
+          <h2>Профиль</h2>
+          <p id="profile"></p>
+        </div>
         <button id="logout">Logout</button>
       </div>
+
+      <nav id="tabs" class="tabs"></nav>
 
       <section id="student-view" class="card hidden"></section>
       <section id="teacher-view" class="card hidden"></section>

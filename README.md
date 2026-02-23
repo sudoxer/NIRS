@@ -102,10 +102,10 @@ TOKEN_TTL_HOURS=24
   - `GET /api/student/subjects`
   - `GET /api/student/grades`
 - Teacher:
-  - `GET /api/teacher/classes`
-  - `GET /api/teacher/classes/{class_id}/students`
-  - `GET /api/teacher/classes/{class_id}/grades?subject_id=...`
-  - `POST /api/teacher/grades`
+  - `GET /api/teacher/classes` (для admin доступен выбор через `?teacher_id=...`)
+  - `GET /api/teacher/classes/{class_id}/students` (опционально `?teacher_id=...`)
+  - `GET /api/teacher/classes/{class_id}/grades?subject_id=...` (опционально `&teacher_id=...`)
+  - `POST /api/teacher/grades` (опционально `?teacher_id=...`)
 - Admin (`vice_principal`, `principal`):
   - `GET /api/admin/students`
   - `GET /api/admin/teachers`
@@ -137,3 +137,10 @@ location /api/ {
    - Статика и UI отдает nginx.
    - Любые `/api/...` nginx отправляет в backend `127.0.0.1:8000`.
 
+
+## 8) UI
+
+- Добавлены вкладки (Student / Teacher / Admin) для удобной навигации.
+- Teacher Dashboard работает в формате табеля: строки — ученики, столбцы — даты.
+- Для admin в Teacher Dashboard есть выбор учителя, чтобы управлять журналом конкретного преподавателя.
+- Student Dashboard показывает табель: строки — даты, столбцы — предметы.

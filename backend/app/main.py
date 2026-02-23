@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from sqlalchemy import and_, select
@@ -29,6 +29,32 @@ app = FastAPI(title="School Journal API")
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+
+
+def _resolve_teacher_for_dashboard(db: Session, current_user: User, teacher_id: int | None) -> Teacher:
+    if current_user.role == UserRole.teacher:
+        teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher profile not found")
+        return teacher
+
+    if current_user.role in (UserRole.vice_principal, UserRole.principal):
+        if teacher_id is not None:
+            teacher = db.get(Teacher, teacher_id)
+            if not teacher:
+                raise HTTPException(status_code=404, detail="Selected teacher not found")
+            return teacher
+
+        own_teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
+        if own_teacher:
+            return own_teacher
+
+        first_teacher = db.scalar(select(Teacher).order_by(Teacher.id))
+        if not first_teacher:
+            raise HTTPException(status_code=404, detail="No teachers in system")
+        return first_teacher
+
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
@@ -77,16 +103,19 @@ def student_grades(current_user: User = Depends(require_roles(UserRole.student))
 
 
 @app.get("/api/teacher/classes", response_model=list[TeacherClassOut])
-def teacher_classes(current_user: User = Depends(require_roles(UserRole.teacher, UserRole.vice_principal, UserRole.principal)), db: Session = Depends(get_db)):
-    teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
-    if not teacher:
-        raise HTTPException(status_code=404, detail="Teacher profile not found")
+def teacher_classes(
+    teacher_id: int | None = Query(default=None),
+    current_user: User = Depends(require_roles(UserRole.teacher, UserRole.vice_principal, UserRole.principal)),
+    db: Session = Depends(get_db),
+):
+    teacher = _resolve_teacher_for_dashboard(db, current_user, teacher_id)
 
     stmt = (
         select(Class.id, Class.display_name, Subject.id, Subject.name)
         .join(TeachingAssignment, TeachingAssignment.class_id == Class.id)
         .join(Subject, Subject.id == TeachingAssignment.subject_id)
         .where(TeachingAssignment.teacher_id == teacher.id)
+        .order_by(Class.display_name, Subject.name)
     )
     return [
         TeacherClassOut(class_id=class_id, display_name=display_name, subject_id=subject_id, subject_name=subject_name)
@@ -97,12 +126,11 @@ def teacher_classes(current_user: User = Depends(require_roles(UserRole.teacher,
 @app.get("/api/teacher/classes/{class_id}/students", response_model=list[StudentOut])
 def teacher_class_students(
     class_id: int,
+    teacher_id: int | None = Query(default=None),
     current_user: User = Depends(require_roles(UserRole.teacher, UserRole.vice_principal, UserRole.principal)),
     db: Session = Depends(get_db),
 ):
-    teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
-    if not teacher:
-        raise HTTPException(status_code=404, detail="Teacher profile not found")
+    teacher = _resolve_teacher_for_dashboard(db, current_user, teacher_id)
 
     assignment = db.scalar(
         select(TeachingAssignment).where(and_(TeachingAssignment.teacher_id == teacher.id, TeachingAssignment.class_id == class_id))
@@ -110,7 +138,7 @@ def teacher_class_students(
     if not assignment and current_user.role == UserRole.teacher:
         raise HTTPException(status_code=403, detail="No access to this class")
 
-    students = db.scalars(select(Student).where(Student.class_id == class_id)).all()
+    students = db.scalars(select(Student).where(Student.class_id == class_id).order_by(Student.last_name, Student.first_name)).all()
     return [StudentOut(id=s.id, first_name=s.first_name, last_name=s.last_name, class_id=s.class_id) for s in students]
 
 
@@ -118,12 +146,11 @@ def teacher_class_students(
 def teacher_class_grades(
     class_id: int,
     subject_id: int = Query(...),
+    teacher_id: int | None = Query(default=None),
     current_user: User = Depends(require_roles(UserRole.teacher, UserRole.vice_principal, UserRole.principal)),
     db: Session = Depends(get_db),
 ):
-    teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
-    if not teacher:
-        raise HTTPException(status_code=404, detail="Teacher profile not found")
+    teacher = _resolve_teacher_for_dashboard(db, current_user, teacher_id)
 
     assignment = db.scalar(
         select(TeachingAssignment).where(
@@ -138,7 +165,7 @@ def teacher_class_grades(
         raise HTTPException(status_code=403, detail="No access to this class and subject")
 
     filters = [Grade.class_id == class_id, Grade.subject_id == subject_id]
-    if current_user.role == UserRole.teacher:
+    if current_user.role == UserRole.teacher or teacher_id is not None:
         filters.append(Grade.teacher_id == teacher.id)
     return _grade_query(db, filters=filters)
 
@@ -146,12 +173,11 @@ def teacher_class_grades(
 @app.post("/api/teacher/grades", response_model=GradeOut)
 def add_grade(
     payload: CreateGradeIn,
+    teacher_id: int | None = Query(default=None),
     current_user: User = Depends(require_roles(UserRole.teacher, UserRole.vice_principal, UserRole.principal)),
     db: Session = Depends(get_db),
 ):
-    teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
-    if not teacher:
-        raise HTTPException(status_code=404, detail="Teacher profile not found")
+    teacher = _resolve_teacher_for_dashboard(db, current_user, teacher_id)
 
     assignment = db.scalar(
         select(TeachingAssignment).where(
@@ -187,25 +213,25 @@ def add_grade(
 
 @app.get("/api/admin/students", response_model=list[StudentOut])
 def admin_students(current_user: User = Depends(require_roles(UserRole.vice_principal, UserRole.principal)), db: Session = Depends(get_db)):
-    students = db.scalars(select(Student)).all()
+    students = db.scalars(select(Student).order_by(Student.last_name, Student.first_name)).all()
     return [StudentOut(id=s.id, first_name=s.first_name, last_name=s.last_name, class_id=s.class_id) for s in students]
 
 
 @app.get("/api/admin/teachers", response_model=list[TeacherOut])
 def admin_teachers(current_user: User = Depends(require_roles(UserRole.vice_principal, UserRole.principal)), db: Session = Depends(get_db)):
-    teachers = db.scalars(select(Teacher)).all()
+    teachers = db.scalars(select(Teacher).order_by(Teacher.last_name, Teacher.first_name)).all()
     return [TeacherOut(id=t.id, first_name=t.first_name, last_name=t.last_name, user_id=t.user_id) for t in teachers]
 
 
 @app.get("/api/admin/subjects", response_model=list[SubjectOut])
 def admin_subjects(current_user: User = Depends(require_roles(UserRole.vice_principal, UserRole.principal)), db: Session = Depends(get_db)):
-    subjects = db.scalars(select(Subject)).all()
+    subjects = db.scalars(select(Subject).order_by(Subject.name)).all()
     return [SubjectOut(id=s.id, name=s.name) for s in subjects]
 
 
 @app.get("/api/admin/classes", response_model=list[ClassOut])
 def admin_classes(current_user: User = Depends(require_roles(UserRole.vice_principal, UserRole.principal)), db: Session = Depends(get_db)):
-    classes = db.scalars(select(Class)).all()
+    classes = db.scalars(select(Class).order_by(Class.grade_level, Class.letter)).all()
     return [ClassOut(id=c.id, grade_level=c.grade_level, letter=c.letter, display_name=c.display_name) for c in classes]
 
 
@@ -215,8 +241,8 @@ def admin_grades(
     class_id: int | None = None,
     subject_id: int | None = None,
     teacher_id: int | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
     current_user: User = Depends(require_roles(UserRole.vice_principal, UserRole.principal)),
     db: Session = Depends(get_db),
 ):
@@ -254,6 +280,7 @@ def _grade_query(db: Session, filters: list):
         )
         .join(Subject, Subject.id == Grade.subject_id)
         .join(Teacher, Teacher.id == Grade.teacher_id)
+        .order_by(Grade.date, Grade.student_id)
     )
     if filters:
         stmt = stmt.where(and_(*filters))
