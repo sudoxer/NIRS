@@ -45,3 +45,6 @@ tr:hover td { background: #fafcff; }
 
 .inner-tabs { margin-top: .3rem; }
 .admin-pane h3 { margin-top: .2rem; }
+
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable::after { content: " ↕"; font-size: .75rem; color: #8aa0c5; }

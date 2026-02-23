@@ -75,8 +75,28 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @app.get("/api/me", response_model=MeResponse)
-def me(current_user: User = Depends(get_current_user)):
-    return MeResponse(user_id=current_user.id, username=current_user.username, role=current_user.role)
+def me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    first_name = None
+    last_name = None
+
+    if current_user.role == UserRole.student:
+        student = db.scalar(select(Student).where(Student.user_id == current_user.id))
+        if student:
+            first_name = student.first_name
+            last_name = student.last_name
+    elif current_user.role in (UserRole.teacher, UserRole.vice_principal, UserRole.principal):
+        teacher = db.scalar(select(Teacher).where(Teacher.user_id == current_user.id))
+        if teacher:
+            first_name = teacher.first_name
+            last_name = teacher.last_name
+
+    return MeResponse(
+        user_id=current_user.id,
+        username=current_user.username,
+        role=current_user.role,
+        first_name=first_name,
+        last_name=last_name,
+    )
 
 
 @app.get("/api/student/subjects", response_model=list[StudentSubjectOut])

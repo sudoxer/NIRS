@@ -18,6 +18,8 @@ class MeResponse(BaseModel):
     user_id: int
     username: str
     role: UserRole
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class StudentSubjectOut(BaseModel):

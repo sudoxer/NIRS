@@ -35,10 +35,54 @@ function escapeHtml(v) {
     .replaceAll("'", "&#039;");
 }
 
-function tableHtml(headers, rows) {
-  const head = `<tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
-  const body = rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
-  return `<div class="table-wrap"><table>${head}${body}</table></div>`;
+function tableHtml(headers, rows, { sortable = true } = {}) {
+  const head = `<tr>${headers
+    .map((h, idx) => {
+      const meta = typeof h === "string" ? { label: h, type: "string" } : h;
+      const sortAttrs = sortable ? ` class="sortable" data-col="${idx}" data-type="${meta.type || "string"}"` : "";
+      return `<th${sortAttrs}>${escapeHtml(meta.label)}</th>`;
+    })
+    .join("")}</tr>`;
+
+  const body = rows
+    .map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`)
+    .join("");
+
+  return `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
+}
+
+function enableTableSorting(root) {
+  root.querySelectorAll("th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      const table = th.closest("table");
+      const tbody = table.querySelector("tbody");
+      const col = Number(th.dataset.col);
+      const type = th.dataset.type || "string";
+
+      const current = th.dataset.order || "none";
+      const next = current === "asc" ? "desc" : "asc";
+
+      table.querySelectorAll("th.sortable").forEach((x) => {
+        if (x !== th) x.dataset.order = "none";
+      });
+      th.dataset.order = next;
+
+      const rows = [...tbody.querySelectorAll("tr")];
+      rows.sort((a, b) => {
+        const av = (a.children[col]?.textContent || "").trim();
+        const bv = (b.children[col]?.textContent || "").trim();
+
+        let cmp = 0;
+        if (type === "number") cmp = Number(av) - Number(bv);
+        else if (type === "date") cmp = new Date(av).getTime() - new Date(bv).getTime();
+        else cmp = av.localeCompare(bv, "ru");
+
+        return next === "asc" ? cmp : -cmp;
+      });
+
+      rows.forEach((r) => tbody.appendChild(r));
+    });
+  });
 }
 
 function setActiveTab(tab) {
@@ -58,9 +102,7 @@ function setupTabs(role) {
   if (["vice_principal", "principal"].includes(role)) tabs.push({ id: "admin", title: "Admin" });
 
   const tabEl = document.getElementById("tabs");
-  tabEl.innerHTML = tabs
-    .map((t) => `<button class="ghost" data-tab="${t.id}">${t.title}</button>`)
-    .join("");
+  tabEl.innerHTML = tabs.map((t) => `<button class="ghost" data-tab="${t.id}">${t.title}</button>`).join("");
 
   tabEl.querySelectorAll("button").forEach((btn) => {
     btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
@@ -87,7 +129,8 @@ async function loadStudentView() {
 
   block.innerHTML = `<h2>Student Dashboard</h2>
     <p class="small">Табель: строки — даты, столбцы — предметы.</p>
-    ${tableHtml(["Date", ...subjectNames], rows)}`;
+    ${tableHtml([{ label: "Date", type: "date" }, ...subjectNames.map((s) => ({ label: s, type: "string" }))], rows)}`;
+  enableTableSorting(block);
 }
 
 function teacherApiPath(path, teacherId) {
@@ -122,7 +165,7 @@ async function loadTeacherView() {
       <button id="add-date" class="ghost">Добавить дату в таблицу</button>
       <button id="load-gradebook">Открыть таблицу</button>
     </div>
-    <p class="small">Формат табеля: строки — ученики, столбцы — даты. Нажмите на ячейку, чтобы ввести оценку.</p>
+    <p class="small">Строки — ученики, столбцы — даты. Изменения сохраняются по кнопке ниже.</p>
     <div id="gradebook"></div>
     <div class="tools">
       <button id="save-pending" class="hidden">Сохранить</button>
@@ -152,14 +195,8 @@ async function loadTeacherView() {
       byCell.set(key, prev ? `${prev}, ${g.value}` : `${g.value}`);
     });
 
-    for (const [k, v] of state.pendingGrades.entries()) {
-      const [cId, sId] = k.split("|").map(Number);
-      if (cId === classId && sId === subjectId) {
-        for (const item of v) {
-          byCell.set(`${item.studentId}|${item.date}`, `${item.value}*`);
-        }
-      }
-    }
+    const pending = state.pendingGrades.get(`${classId}|${subjectId}`) || [];
+    pending.forEach((item) => byCell.set(`${item.studentId}|${item.date}`, `${item.value}*`));
 
     const header = `<tr><th>Ученик</th>${currentDates.map((d) => `<th>${escapeHtml(d)}</th>`).join("")}</tr>`;
     const rows = currentStudents
@@ -174,7 +211,7 @@ async function loadTeacherView() {
       })
       .join("");
 
-    document.getElementById("gradebook").innerHTML = `<div class="table-wrap"><table>${header}${rows}</table></div>`;
+    document.getElementById("gradebook").innerHTML = `<div class="table-wrap"><table>${header}<tbody>${rows}</tbody></table></div>`;
     document.getElementById("save-pending").classList.remove("hidden");
 
     document.querySelectorAll(".editable-cell").forEach((cell) => {
@@ -316,6 +353,8 @@ async function loadAdminView() {
     api("/api/admin/grades"),
   ]);
 
+  const classById = Object.fromEntries(classes.map((c) => [c.id, c.display_name]));
+
   block.innerHTML = `<h2>Administration Dashboard</h2>
     <div class="tools">
       <span class="badge">Students: ${students.length}</span>
@@ -335,40 +374,64 @@ async function loadAdminView() {
 
     <section class="admin-pane" data-inner-pane="teachers">
       <h3>All Teachers</h3>
-      ${tableHtml(["Teacher ID", "First", "Last", "User ID"], teachers.map((t) => [t.id, t.first_name, t.last_name, t.user_id]))}
+      ${tableHtml([
+        { label: "Teacher ID", type: "number" },
+        { label: "First", type: "string" },
+        { label: "Last", type: "string" },
+        { label: "User ID", type: "number" },
+      ], teachers.map((t) => [t.id, t.first_name, t.last_name, t.user_id]))}
     </section>
 
     <section class="admin-pane hidden" data-inner-pane="students">
       <h3>All Students</h3>
-      ${tableHtml(["Student ID", "First", "Last", "Class ID"], students.map((s) => [s.id, s.first_name, s.last_name, s.class_id]))}
+      ${tableHtml([
+        { label: "Student ID", type: "number" },
+        { label: "First", type: "string" },
+        { label: "Last", type: "string" },
+        { label: "Class", type: "string" },
+      ], students.map((s) => [s.id, s.first_name, s.last_name, classById[s.class_id] || s.class_id]))}
     </section>
 
     <section class="admin-pane hidden" data-inner-pane="classes">
       <h3>All Classes</h3>
-      ${tableHtml(["Class ID", "Display", "Grade", "Letter"], classes.map((c) => [c.id, c.display_name, c.grade_level, c.letter]))}
+      ${tableHtml([
+        { label: "Class ID", type: "number" },
+        { label: "Display", type: "string" },
+        { label: "Grade", type: "number" },
+        { label: "Letter", type: "string" },
+      ], classes.map((c) => [c.id, c.display_name, c.grade_level, c.letter]))}
     </section>
 
     <section class="admin-pane hidden" data-inner-pane="subjects">
       <h3>All Subjects</h3>
-      ${tableHtml(["Subject ID", "Name"], subjects.map((s) => [s.id, s.name]))}
+      ${tableHtml([{ label: "Subject ID", type: "number" }, { label: "Name", type: "string" }], subjects.map((s) => [s.id, s.name]))}
     </section>
 
     <section class="admin-pane hidden" data-inner-pane="grades">
       <h3>All Grades</h3>
-      ${tableHtml(
-        ["Grade ID", "Student", "Class", "Subject", "Teacher", "Value", "Date"],
-        grades.map((g) => [g.id, g.student_id, g.class_id, g.subject_name, g.teacher_name, g.value, g.date])
-      )}
+      ${tableHtml([
+        { label: "Grade ID", type: "number" },
+        { label: "Student", type: "number" },
+        { label: "Class", type: "string" },
+        { label: "Subject", type: "string" },
+        { label: "Teacher", type: "string" },
+        { label: "Value", type: "number" },
+        { label: "Date", type: "date" },
+      ], grades.map((g) => [g.id, g.student_id, classById[g.class_id] || g.class_id, g.subject_name, g.teacher_name, g.value, g.date]))}
     </section>`;
 
   initAdminInnerTabs();
+  enableTableSorting(block);
 }
 
 async function loadApp() {
   state.me = await api("/api/me");
   loginSection.classList.add("hidden");
   appSection.classList.remove("hidden");
-  profileEl.textContent = `${state.me.username} (${state.me.role})`;
+
+  const fullName = [state.me.last_name, state.me.first_name].filter(Boolean).join(" ").trim();
+  const title = fullName ? fullName.toUpperCase() : String(state.me.username || "").toUpperCase();
+  profileEl.innerHTML = `${escapeHtml(title)}<br><span class="small">${escapeHtml(state.me.username)} (${escapeHtml(state.me.role)})</span>`;
 
   setupTabs(state.me.role);
 
