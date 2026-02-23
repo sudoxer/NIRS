@@ -274,8 +274,6 @@ async function loadTeacherView() {
       renderGradebook();
     }
   });
-    });
-  }
 
   if (isAdmin) {
     document.getElementById("teacher-picker").addEventListener("change", async () => {
@@ -289,18 +287,33 @@ async function loadTeacherView() {
     });
   }
 
-  document.getElementById("load-gradebook").addEventListener("click", loadGradebook);
-
   await loadAssignments();
+}
+
+function initAdminInnerTabs() {
+  const tabButtons = document.querySelectorAll("#admin-inner-tabs button");
+  const panes = document.querySelectorAll(".admin-pane");
+
+  const activate = (tab) => {
+    tabButtons.forEach((b) => b.classList.toggle("active", b.dataset.innerTab === tab));
+    panes.forEach((p) => p.classList.toggle("hidden", p.dataset.innerPane !== tab));
+  };
+
+  tabButtons.forEach((btn) => {
+    btn.addEventListener("click", () => activate(btn.dataset.innerTab));
+  });
+
+  if (tabButtons.length) activate(tabButtons[0].dataset.innerTab);
 }
 
 async function loadAdminView() {
   const block = document.getElementById("admin-view");
-  const [students, teachers, subjects, classes] = await Promise.all([
+  const [students, teachers, subjects, classes, grades] = await Promise.all([
     api("/api/admin/students"),
     api("/api/admin/teachers"),
     api("/api/admin/subjects"),
     api("/api/admin/classes"),
+    api("/api/admin/grades"),
   ]);
 
   block.innerHTML = `<h2>Administration Dashboard</h2>
@@ -309,9 +322,46 @@ async function loadAdminView() {
       <span class="badge">Teachers: ${teachers.length}</span>
       <span class="badge">Subjects: ${subjects.length}</span>
       <span class="badge">Classes: ${classes.length}</span>
+      <span class="badge">Grades: ${grades.length}</span>
     </div>
-    ${tableHtml(["Teacher ID", "First", "Last", "User ID"], teachers.slice(0, 30).map((t) => [t.id, t.first_name, t.last_name, t.user_id]))}
-    <p class="small">Показаны первые 30 учителей для компактности.</p>`;
+
+    <nav id="admin-inner-tabs" class="tabs inner-tabs">
+      <button class="ghost" data-inner-tab="teachers">Teachers</button>
+      <button class="ghost" data-inner-tab="students">Students</button>
+      <button class="ghost" data-inner-tab="classes">Classes</button>
+      <button class="ghost" data-inner-tab="subjects">Subjects</button>
+      <button class="ghost" data-inner-tab="grades">Grades</button>
+    </nav>
+
+    <section class="admin-pane" data-inner-pane="teachers">
+      <h3>All Teachers</h3>
+      ${tableHtml(["Teacher ID", "First", "Last", "User ID"], teachers.map((t) => [t.id, t.first_name, t.last_name, t.user_id]))}
+    </section>
+
+    <section class="admin-pane hidden" data-inner-pane="students">
+      <h3>All Students</h3>
+      ${tableHtml(["Student ID", "First", "Last", "Class ID"], students.map((s) => [s.id, s.first_name, s.last_name, s.class_id]))}
+    </section>
+
+    <section class="admin-pane hidden" data-inner-pane="classes">
+      <h3>All Classes</h3>
+      ${tableHtml(["Class ID", "Display", "Grade", "Letter"], classes.map((c) => [c.id, c.display_name, c.grade_level, c.letter]))}
+    </section>
+
+    <section class="admin-pane hidden" data-inner-pane="subjects">
+      <h3>All Subjects</h3>
+      ${tableHtml(["Subject ID", "Name"], subjects.map((s) => [s.id, s.name]))}
+    </section>
+
+    <section class="admin-pane hidden" data-inner-pane="grades">
+      <h3>All Grades</h3>
+      ${tableHtml(
+        ["Grade ID", "Student", "Class", "Subject", "Teacher", "Value", "Date"],
+        grades.map((g) => [g.id, g.student_id, g.class_id, g.subject_name, g.teacher_name, g.value, g.date])
+      )}
+    </section>`;
+
+  initAdminInnerTabs();
 }
 
 async function loadApp() {

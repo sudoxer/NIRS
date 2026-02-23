@@ -42,3 +42,6 @@ tr:hover td { background: #fafcff; }
 .editable-cell { cursor: pointer; }
 .editable-cell:hover { background: #eef5ff; }
 .pending-cell { background: #fff5d6 !important; font-weight: 600; }
+
+.inner-tabs { margin-top: .3rem; }
+.admin-pane h3 { margin-top: .2rem; }
