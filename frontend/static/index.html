@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>School Journal</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>School Journal</h1>
+
+    <section id="login-section" class="card">
+      <h2>Login</h2>
+      <form id="login-form">
+        <label>Username <input id="username" required /></label>
+        <label>Password <input id="password" type="password" required /></label>
+        <button type="submit">Sign in</button>
+      </form>
+      <p id="login-error" class="error"></p>
+    </section>
+
+    <section id="app-section" class="hidden">
+      <div class="card">
+        <h2>Profile</h2>
+        <p id="profile"></p>
+        <button id="logout">Logout</button>
+      </div>
+
+      <section id="student-view" class="card hidden"></section>
+      <section id="teacher-view" class="card hidden"></section>
+      <section id="admin-view" class="card hidden"></section>
+    </section>
+  </main>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
