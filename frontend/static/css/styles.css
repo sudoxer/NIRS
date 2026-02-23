@@ -38,3 +38,7 @@ tr:hover td { background: #fafcff; }
 .tools { display: flex; gap: .6rem; flex-wrap: wrap; align-items: end; margin-bottom: .8rem; }
 .grade-cell input { width: 64px; }
 .small { font-size: .84rem; color: var(--muted); }
+
+.editable-cell { cursor: pointer; }
+.editable-cell:hover { background: #eef5ff; }
+.pending-cell { background: #fff5d6 !important; font-weight: 600; }

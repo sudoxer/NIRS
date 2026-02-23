@@ -4,6 +4,7 @@ const state = {
   me: null,
   adminTeachers: [],
   activeTab: null,
+  pendingGrades: new Map(),
 };
 
 const viewIds = ["student-view", "teacher-view", "admin-view"];
@@ -97,31 +98,111 @@ function teacherApiPath(path, teacherId) {
 async function loadTeacherView() {
   const block = document.getElementById("teacher-view");
   const isAdmin = ["vice_principal", "principal"].includes(state.me.role);
+  state.pendingGrades = new Map();
 
   if (isAdmin && state.adminTeachers.length === 0) {
     state.adminTeachers = await api("/api/admin/teachers");
   }
 
-  const teacherSelect = isAdmin
-    ? `<label>Teacher
+  const teacherPicker = isAdmin
+    ? `<label>Учитель
          <select id="teacher-picker">
-           ${state.adminTeachers.map((t) => `<option value="${t.id}">${escapeHtml(t.last_name)} ${escapeHtml(t.first_name)} (#${t.id})</option>`).join("")}
+           ${state.adminTeachers
+             .map((t) => `<option value="${t.id}">${escapeHtml(t.last_name)} ${escapeHtml(t.first_name)} (#${t.id})</option>`)
+             .join("")}
          </select>
        </label>`
-    : "";
+    : `<label>Учитель <input value="Текущий пользователь" disabled /></label>`;
 
   block.innerHTML = `<h2>Teacher Dashboard</h2>
     <div class="tools">
-      ${teacherSelect}
-      <label>Class / Subject <select id="assignment-select"></select></label>
-      <label>Date for new grades <input type="date" id="grade-date" /></label>
-      <button id="load-gradebook">Load gradebook</button>
+      ${teacherPicker}
+      <label>Класс / предмет <select id="assignment-select"></select></label>
+      <label>Добавить дату <input type="date" id="new-date" /></label>
+      <button id="add-date" class="ghost">Добавить дату в таблицу</button>
+      <button id="load-gradebook">Открыть таблицу</button>
     </div>
-    <p class="small">Табель: строки — ученики, столбцы — даты. В последнем столбце можно выставить новую оценку на выбранную дату.</p>
+    <p class="small">Формат табеля: строки — ученики, столбцы — даты. Нажмите на ячейку, чтобы ввести оценку.</p>
     <div id="gradebook"></div>
-    <p id="grade-msg" class="small"></p>`;
+    <div class="tools">
+      <button id="save-pending" class="hidden">Сохранить</button>
+      <span id="grade-msg" class="small"></span>
+    </div>`;
 
   const teacherId = () => (isAdmin ? Number(document.getElementById("teacher-picker").value) : null);
+
+  let currentDates = [];
+  let currentStudents = [];
+  let currentGrades = [];
+
+  function renderGradebook() {
+    const selected = document.getElementById("assignment-select").value;
+    if (!selected) {
+      document.getElementById("gradebook").innerHTML = "";
+      document.getElementById("save-pending").classList.add("hidden");
+      return;
+    }
+
+    const [classId, subjectId] = selected.split("|").map(Number);
+    const byCell = new Map();
+
+    currentGrades.forEach((g) => {
+      const key = `${g.student_id}|${g.date}`;
+      const prev = byCell.get(key);
+      byCell.set(key, prev ? `${prev}, ${g.value}` : `${g.value}`);
+    });
+
+    for (const [k, v] of state.pendingGrades.entries()) {
+      const [cId, sId] = k.split("|").map(Number);
+      if (cId === classId && sId === subjectId) {
+        for (const item of v) {
+          byCell.set(`${item.studentId}|${item.date}`, `${item.value}*`);
+        }
+      }
+    }
+
+    const header = `<tr><th>Ученик</th>${currentDates.map((d) => `<th>${escapeHtml(d)}</th>`).join("")}</tr>`;
+    const rows = currentStudents
+      .map((s) => {
+        const cols = currentDates
+          .map((d) => {
+            const val = byCell.get(`${s.id}|${d}`) || "—";
+            return `<td class="editable-cell" data-student-id="${s.id}" data-date="${d}">${escapeHtml(val)}</td>`;
+          })
+          .join("");
+        return `<tr><td>${escapeHtml(`${s.last_name} ${s.first_name}`)} <span class="badge">#${s.id}</span></td>${cols}</tr>`;
+      })
+      .join("");
+
+    document.getElementById("gradebook").innerHTML = `<div class="table-wrap"><table>${header}${rows}</table></div>`;
+    document.getElementById("save-pending").classList.remove("hidden");
+
+    document.querySelectorAll(".editable-cell").forEach((cell) => {
+      cell.addEventListener("click", () => {
+        const studentId = Number(cell.dataset.studentId);
+        const d = cell.dataset.date;
+        const nextVal = prompt(`Оценка для ученика #${studentId} на ${d} (1-12)`);
+        if (nextVal === null) return;
+        const value = Number(nextVal);
+        if (!Number.isInteger(value) || value < 1 || value > 12) {
+          document.getElementById("grade-msg").textContent = "Оценка должна быть целым числом 1..12";
+          return;
+        }
+
+        const key = `${classId}|${subjectId}`;
+        const arr = state.pendingGrades.get(key) || [];
+        const idx = arr.findIndex((x) => x.studentId === studentId && x.date === d);
+        const item = { studentId, date: d, value };
+        if (idx >= 0) arr[idx] = item;
+        else arr.push(item);
+        state.pendingGrades.set(key, arr);
+
+        cell.textContent = `${value}*`;
+        cell.classList.add("pending-cell");
+        document.getElementById("grade-msg").textContent = "Есть несохраненные изменения";
+      });
+    });
+  }
 
   async function loadAssignments() {
     const classes = await api(teacherApiPath("/api/teacher/classes", teacherId()));
@@ -134,6 +215,7 @@ async function loadTeacherView() {
   async function loadGradebook() {
     const selected = document.getElementById("assignment-select").value;
     if (!selected) return;
+
     const [classId, subjectId] = selected.split("|").map(Number);
 
     const [students, grades] = await Promise.all([
@@ -141,72 +223,69 @@ async function loadTeacherView() {
       api(teacherApiPath(`/api/teacher/classes/${classId}/grades?subject_id=${subjectId}`, teacherId())),
     ]);
 
-    const dates = [...new Set(grades.map((g) => g.date))].sort();
-    const byCell = new Map();
-    grades.forEach((g) => {
-      const key = `${g.student_id}|${g.date}`;
-      const prev = byCell.get(key);
-      byCell.set(key, prev ? `${prev}, ${g.value}` : `${g.value}`);
-    });
+    currentStudents = students;
+    currentGrades = grades;
+    currentDates = [...new Set(grades.map((g) => g.date))].sort();
+    renderGradebook();
+  }
 
-    const thead = `<tr><th>Student</th>${dates.map((d) => `<th>${escapeHtml(d)}</th>`).join("")}<th>New grade</th><th></th></tr>`;
-    const rows = students
-      .map(
-        (s) => `<tr>
-          <td>${escapeHtml(`${s.last_name} ${s.first_name}`)} <span class="badge">#${s.id}</span></td>
-          ${dates.map((d) => `<td>${escapeHtml(byCell.get(`${s.id}|${d}`) || "—")}</td>`).join("")}
-          <td class="grade-cell"><input type="number" min="1" max="12" data-student-id="${s.id}" placeholder="1-12" /></td>
-          <td><button data-save-student-id="${s.id}" data-class-id="${classId}" data-subject-id="${subjectId}">Save</button></td>
-        </tr>`
-      )
-      .join("");
+  async function savePending() {
+    const selected = document.getElementById("assignment-select").value;
+    if (!selected) return;
+    const [classId, subjectId] = selected.split("|").map(Number);
+    const key = `${classId}|${subjectId}`;
+    const pending = state.pendingGrades.get(key) || [];
 
-    document.getElementById("gradebook").innerHTML = `<div class="table-wrap"><table>${thead}${rows}</table></div>`;
+    if (!pending.length) {
+      document.getElementById("grade-msg").textContent = "Нет изменений для сохранения";
+      return;
+    }
 
-    document.querySelectorAll("button[data-save-student-id]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const studentId = Number(btn.dataset.saveStudentId);
-        const cId = Number(btn.dataset.classId);
-        const sId = Number(btn.dataset.subjectId);
-        const valueInput = document.querySelector(`input[data-student-id='${studentId}']`);
-        const gradeDate = document.getElementById("grade-date").value;
-        const value = Number(valueInput.value);
-
-        if (!gradeDate) {
-          document.getElementById("grade-msg").textContent = "Pick date before saving";
-          return;
-        }
-        if (!value || value < 1 || value > 12) {
-          document.getElementById("grade-msg").textContent = "Grade value must be between 1 and 12";
-          return;
-        }
-
-        try {
-          await api(teacherApiPath("/api/teacher/grades", teacherId()), {
-            method: "POST",
-            body: JSON.stringify({
-              student_id: studentId,
-              class_id: cId,
-              subject_id: sId,
-              value,
-              date: gradeDate,
-              comment: null,
-            }),
-          });
-          document.getElementById("grade-msg").textContent = `Saved for student #${studentId}`;
-          valueInput.value = "";
-          await loadGradebook();
-        } catch (e) {
-          document.getElementById("grade-msg").textContent = e.message;
-        }
+    let saved = 0;
+    for (const item of pending) {
+      await api(teacherApiPath("/api/teacher/grades", teacherId()), {
+        method: "POST",
+        body: JSON.stringify({
+          student_id: item.studentId,
+          class_id: classId,
+          subject_id: subjectId,
+          value: item.value,
+          date: item.date,
+          comment: null,
+        }),
       });
+      saved += 1;
+    }
+
+    state.pendingGrades.set(key, []);
+    document.getElementById("grade-msg").textContent = `Сохранено: ${saved}`;
+    await loadGradebook();
+  }
+
+  document.getElementById("load-gradebook").addEventListener("click", loadGradebook);
+  document.getElementById("save-pending").addEventListener("click", savePending);
+
+  document.getElementById("add-date").addEventListener("click", () => {
+    const d = document.getElementById("new-date").value;
+    if (!d) return;
+    if (!currentDates.includes(d)) {
+      currentDates.push(d);
+      currentDates.sort();
+      renderGradebook();
+    }
+  });
     });
   }
 
   if (isAdmin) {
     document.getElementById("teacher-picker").addEventListener("change", async () => {
-      await loadAssignments();
+      state.pendingGrades = new Map();
+      currentDates = [];
+      currentStudents = [];
+      currentGrades = [];
       document.getElementById("gradebook").innerHTML = "";
+      document.getElementById("grade-msg").textContent = "";
+      await loadAssignments();
     });
   }
 
@@ -232,7 +311,7 @@ async function loadAdminView() {
       <span class="badge">Classes: ${classes.length}</span>
     </div>
     ${tableHtml(["Teacher ID", "First", "Last", "User ID"], teachers.slice(0, 30).map((t) => [t.id, t.first_name, t.last_name, t.user_id]))}
-    <p class="small">Показаны первые 30 учителей для компактности. Полный список доступен через API /api/admin/teachers.</p>`;
+    <p class="small">Показаны первые 30 учителей для компактности.</p>`;
 }
 
 async function loadApp() {
