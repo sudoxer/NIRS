@@ -75,7 +75,15 @@ DATABASE_URL=sqlite:///./school_journal.db
 TOKEN_TTL_HOURS=24
 ```
 
-Можно переключить БД через `DATABASE_URL` на PostgreSQL/MySQL при необходимости.
+Можно переключить БД через `DATABASE_URL` на PostgreSQL/MySQL/Sybase при необходимости.
+
+Пример для Sybase через ODBC DSN:
+
+```env
+DATABASE_URL=sybase+pyodbc://sa:Pa55w0rd@MySybaseDSN
+```
+
+Для Sybase должны быть установлены `pyodbc` и `sqlalchemy-sybase` (уже добавлены в `backend/requirements.txt`) и настроен системный ODBC DSN (`MySybaseDSN`).
 
 ## 6) Тестовые пользователи и заглушки (seed)
 

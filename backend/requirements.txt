@@ -6,3 +6,5 @@ passlib==1.7.4
 bcrypt==3.2.2
 pydantic-settings==2.7.0
 python-multipart==0.0.20
+pyodbc==5.2.0
+sqlalchemy-sybase==2.0.0
