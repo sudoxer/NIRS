@@ -1,6 +1,11 @@
 import random
 from datetime import date
 
+from sqlalchemy.engine import create_mock_engine
+from sqlalchemy.schema import CreateTable
+
+from app.core.config import settings
+
 from app.core.security import hash_password
 from app.db import Base, SessionLocal, engine
 from app.models import Class, Grade, Student, Subject, Teacher, TeacherSubject, TeachingAssignment, User, UserRole
@@ -52,10 +57,34 @@ def pick_name(rng: random.Random, index: int) -> tuple[str, str]:
     return first, last
 
 
+
+
+def debug_schema_preview() -> None:
+    """Print generated schema details for troubleshooting dialect-specific DDL issues."""
+    url = settings.database_url
+    print(f"[seed:debug] DATABASE_URL={url}")
+
+    users_table = Base.metadata.tables.get("users")
+    if users_table is not None:
+        print(f"[seed:debug] users columns={[col.name for col in users_table.columns]}")
+
+    statements: list[str] = []
+
+    def dump(sql, *_, **__):
+        statements.append(str(sql.compile(dialect=mock_engine.dialect)))
+
+    mock_engine = create_mock_engine(url, dump)
+
+    for table in Base.metadata.sorted_tables:
+        ddl = str(CreateTable(table).compile(dialect=mock_engine.dialect))
+        print(f"[seed:debug] CREATE TABLE preview for {table.name}:\n{ddl}\n")
+
+
 def main() -> None:
     rng = random.Random(42)
 
     # Deterministic test fixture seed.
+    debug_schema_preview()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
