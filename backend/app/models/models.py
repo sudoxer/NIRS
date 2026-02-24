@@ -4,8 +4,14 @@ from enum import Enum
 from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import settings
 from app.db import Base
 
+
+
+
+USE_FK_ONDELETE_CASCADE = not settings.database_url.startswith("sybase+pyodbc")
+FK_ONDELETE_CASCADE = {"ondelete": "CASCADE"} if USE_FK_ONDELETE_CASCADE else {}
 
 class UserRole(str, Enum):
     student = "student"
@@ -20,7 +26,9 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), nullable=False)
+    # "role" is a reserved keyword in SQL Server/Sybase, so keep a safe
+    # physical column name while preserving the Python attribute used across the app.
+    role: Mapped[UserRole] = mapped_column("user_role", SAEnum(UserRole), nullable=False)
 
     student = relationship("Student", back_populates="user", uselist=False)
     teacher = relationship("Teacher", back_populates="user", uselist=False)
@@ -31,7 +39,7 @@ class Token(Base):
     __tablename__ = "tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
     token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -53,7 +61,7 @@ class Student(Base):
     __tablename__ = "students"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", **FK_ONDELETE_CASCADE), unique=True, nullable=False)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id"), nullable=False, index=True)
@@ -66,7 +74,7 @@ class Teacher(Base):
     __tablename__ = "teachers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", **FK_ONDELETE_CASCADE), unique=True, nullable=False)
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
 
@@ -85,8 +93,8 @@ class TeacherSubject(Base):
     __table_args__ = (UniqueConstraint("teacher_id", "subject_id", name="uq_teacher_subject"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False, index=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
 
 
 class TeachingAssignment(Base):
@@ -96,19 +104,19 @@ class TeachingAssignment(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False, index=True)
-    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), nullable=False, index=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
 
 
 class Grade(Base):
     __tablename__ = "grades"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
-    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), nullable=False, index=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False, index=True)
-    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("teachers.id", **FK_ONDELETE_CASCADE), nullable=False, index=True)
     value: Mapped[int] = mapped_column(Integer, nullable=False)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
