@@ -4,6 +4,16 @@
 - `backend/` — FastAPI + SQLAlchemy + Alembic.
 - `frontend/` — статический HTML/CSS/JS, который обслуживается nginx и работает с API по `/api/...`.
 
+## 0) Запуск SAP ASE (Sybase)
+
+```bash
+# Start SAP ASE (Sybase) in WSL Ubuntu
+export LANG=C
+export LC_ALL=C
+. /opt/sap/SYBASE.sh
+/opt/sap/ASE-16_1/bin/startserver -f /opt/sap/data/ASE-16_1/install/RUN_ASE
+```
+
 ## 1) Backend: запуск (Linux)
 
 ```bash
